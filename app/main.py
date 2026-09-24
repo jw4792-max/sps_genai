@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from app.bigram_model import BigramModel
+from app.embedding_model import EmbeddingModel
 
 app = FastAPI()
 
@@ -13,6 +14,7 @@ corpus = [
 ]
 
 bigram_model = BigramModel(corpus)
+embedding_model = EmbeddingModel()
 
 
 class TextGenerationRequest(BaseModel):
@@ -29,3 +31,14 @@ def read_root():
 def generate_text(request: TextGenerationRequest):
     generated_text = bigram_model.generate_text(request.start_word, request.length)
     return {"generated_text": generated_text}
+
+
+@app.get("/embedding")
+def get_embedding(word: str):
+    try:
+        embedding = embedding_model.get_embedding(word)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"word": word, "dimension": len(embedding), "embedding": embedding}
