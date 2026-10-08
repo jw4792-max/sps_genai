@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from app.bigram_model import BigramModel
 from app.embedding_model import EmbeddingModel
+from app.cnn_model import WEIGHTS_PATH, ImageClassifier
 
 app = FastAPI()
 
@@ -15,6 +16,8 @@ corpus = [
 
 bigram_model = BigramModel(corpus)
 embedding_model = EmbeddingModel()
+# Load the trained CNN once at startup (None if train_cnn.py has not been run yet)
+image_classifier = ImageClassifier() if WEIGHTS_PATH.exists() else None
 
 
 class TextGenerationRequest(BaseModel):
@@ -42,3 +45,16 @@ def get_embedding(word: str):
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"word": word, "dimension": len(embedding), "embedding": embedding}
+
+
+@app.post("/classify")
+async def classify_image(file: UploadFile = File(...)):
+    """Upload an image (jpg/png/...) and get its predicted CIFAR-10 class."""
+    if image_classifier is None:
+        raise HTTPException(status_code=503, detail="Model weights not found. Run train_cnn.py first.")
+    image_bytes = await file.read()
+    try:
+        result = image_classifier.predict(image_bytes)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the uploaded file as an image.")
+    return {"filename": file.filename, **result}

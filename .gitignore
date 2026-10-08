@@ -1,3 +1,6 @@
+# CIFAR-10 dataset (downloaded automatically by train_cnn.py)
+data/
+
 # Python-generated files
 __pycache__/
 *.py[oc]

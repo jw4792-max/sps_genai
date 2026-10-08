@@ -11,6 +11,9 @@ dependencies = [
     "en-core-web-md",
     "fastapi[standard]>=0.141.1",
     "spacy>=3.8.16",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
+    "tqdm>=4.70.1",
 ]
 
 [project.scripts]
@@ -21,4 +24,13 @@ requires = ["uv_build>=0.12.18,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
+# On Linux (inside Docker) install the small CPU-only PyTorch build instead of the
+# multi-GB CUDA build. On macOS the normal PyPI build (with MPS support) is used.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 en-core-web-md = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
