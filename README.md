@@ -1,9 +1,10 @@
-# sps_genai – Assignments 1 & 2
+# sps_genai – Assignments 1 & 2, Module 6 Class Activity
 
-FastAPI server with three models:
+FastAPI server with four models:
 - **Bigram text generator** (Module 3 class activity)
 - **Word embeddings** using spaCy `en_core_web_md` (300-dim vectors)
 - **CNN image classifier** trained on CIFAR-10 (Assignment 2)
+- **LSTM text generator** trained on *The Count of Monte Cristo* (Module 6 class activity)
 
 ## Run with Docker
 
@@ -14,7 +15,7 @@ docker run -p 8000:80 sps-genai
 
 Then open http://127.0.0.1:8000/docs
 
-The trained CNN weights (`app/weights/cnn_cifar10.pth`) are committed to the repo,
+The trained weights in `app/weights/` are committed to the repo,
 so the Docker image works without retraining.
 
 ## Endpoints
@@ -22,34 +23,25 @@ so the Docker image works without retraining.
 | Method | Path | Input | Output |
 |---|---|---|---|
 | GET | `/` | – | Hello World |
-| POST | `/generate` | `{"start_word": "the", "length": 10}` | generated text |
+| POST | `/generate` | `{"start_word": "the", "length": 10}` | text from the bigram model |
 | GET | `/embedding` | query param `word`, e.g. `?word=apple` | `word`, `dimension`, `embedding` (list of 300 floats) |
 | POST | `/classify` | image file upload (form field `file`, jpg/png/...) | `predicted_class`, `confidence`, `top_k` |
+| POST | `/generate_with_rnn` | `{"start_word": "the ship", "length": 30, "temperature": 0.7}` | text from the LSTM model |
 
 ### Examples
 
 ```bash
 curl "http://127.0.0.1:8000/embedding?word=apple"
 curl -X POST -F "file=@cat.jpeg" http://127.0.0.1:8000/classify
-```
-
-Example `/classify` response:
-
-```json
-{
-  "filename": "cat.jpeg",
-  "predicted_class": "cat",
-  "confidence": 0.5467,
-  "top_k": [
-    {"class": "cat", "probability": 0.5467},
-    {"class": "truck", "probability": 0.4473},
-    {"class": "airplane", "probability": 0.0059}
-  ]
-}
+curl -X POST http://127.0.0.1:8000/generate_with_rnn \
+  -H "Content-Type: application/json" \
+  -d '{"start_word": "the ship", "length": 30, "temperature": 0.7}'
 ```
 
 - `/embedding` returns **400** if more than one word is given, **404** if the word has no vector
 - `/classify` returns **400** if the file is not a valid image, **503** if the model weights are missing
+- `/generate_with_rnn` returns **422** if `length` is outside 1–200 or `temperature` is outside (0, 5],
+  **400** if `start_word` is empty, **503** if the model files are missing
 
 ## Assignment 2: CNN
 
@@ -69,10 +61,7 @@ Architecture (`app/cnn_model.py`), as specified in the assignment:
 CIFAR-10 images (32×32) are resized to 64×64 and normalized with the CIFAR-10
 channel mean/std. The same preprocessing is used for training and inference.
 
-### Retrain the model (optional)
-
 ```bash
-uv sync
 uv run python -m app.cnn_model   # sanity check: prints the architecture and output shape
 uv run python train_cnn.py       # downloads CIFAR-10, trains 10 epochs, saves the weights
 ```
@@ -80,6 +69,23 @@ uv run python train_cnn.py       # downloads CIFAR-10, trains 10 epochs, saves t
 Result after 10 epochs (Adam, lr 1e-3, batch size 64): train accuracy 92.1%,
 test accuracy 64.9%. The gap shows some overfitting, which is expected since the
 specified architecture has no dropout or batch normalization.
+
+## Module 6 Class Activity: LSTM text generator
+
+Replaces the bigram model with a recurrent neural network (`app/rnn_model.py`):
+Embedding(vocab, 100) → LSTM(100 → 128) → Linear(128 → vocab).
+
+- Training data: Chapters 1–4 of *The Count of Monte Cristo* (Project Gutenberg),
+  punctuation removed and lowercased
+- Each training example is a 30-word sequence; the target is the same sequence shifted by one word
+- Generation feeds the seed words in, then samples one word at a time from the softmax
+  distribution, passing the LSTM hidden state forward. Lower `temperature` gives more
+  conservative text, higher gives more random text.
+
+```bash
+uv run python -m app.rnn_model   # sanity check: prints the architecture and output shapes
+uv run python train_rnn.py       # downloads the book, trains 15 epochs, saves weights + vocabulary
+```
 
 ## Project structure
 
@@ -89,9 +95,13 @@ app/
 ├── bigram_model.py     # BigramModel class
 ├── embedding_model.py  # EmbeddingModel class (spaCy)
 ├── cnn_model.py        # CNN architecture, preprocessing, ImageClassifier
+├── rnn_model.py        # LSTM architecture, TextGenerator
 └── weights/
-    └── cnn_cifar10.pth # trained CNN weights
+    ├── cnn_cifar10.pth  # trained CNN weights
+    ├── lstm_text.pth    # trained LSTM weights
+    └── lstm_vocab.json  # vocabulary used by the LSTM
 train_cnn.py            # trains the CNN on CIFAR-10
+train_rnn.py            # trains the LSTM on The Count of Monte Cristo
 Dockerfile
 pyproject.toml / uv.lock
 ```
