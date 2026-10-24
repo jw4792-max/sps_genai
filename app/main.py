@@ -1,9 +1,10 @@
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from app.bigram_model import BigramModel
 from app.embedding_model import EmbeddingModel
 from app.cnn_model import WEIGHTS_PATH, ImageClassifier
 from app.rnn_model import RNN_VOCAB_PATH, RNN_WEIGHTS_PATH, TextGenerator
+from app.gan_model import GAN_WEIGHTS_PATH, DigitGenerator
 
 app = FastAPI()
 
@@ -23,6 +24,8 @@ image_classifier = ImageClassifier() if WEIGHTS_PATH.exists() else None
 text_generator = (
     TextGenerator() if RNN_WEIGHTS_PATH.exists() and RNN_VOCAB_PATH.exists() else None
 )
+# Load the trained GAN generator once at startup (None if train_gan.py has not been run yet)
+digit_generator = DigitGenerator() if GAN_WEIGHTS_PATH.exists() else None
 
 
 class TextGenerationRequest(BaseModel):
@@ -83,3 +86,19 @@ def generate_text_with_rnn(request: RNNTextGenerationRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"generated_text": generated_text}
+
+
+@app.get(
+    "/generate_digits",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def generate_digits(
+    num_images: int = Query(16, ge=1, le=64),
+    seed: int | None = Query(None, ge=0),
+):
+    """Generate hand-written digits with the GAN trained on MNIST (returns a PNG grid)."""
+    if digit_generator is None:
+        raise HTTPException(status_code=503, detail="GAN model not found. Run train_gan.py first.")
+    png_bytes = digit_generator.generate_png(num_images=num_images, seed=seed)
+    return Response(content=png_bytes, media_type="image/png")

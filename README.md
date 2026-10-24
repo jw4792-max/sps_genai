@@ -1,10 +1,11 @@
-# sps_genai – Assignments 1 & 2, Module 6 Class Activity
+# sps_genai – Assignments 1–3 and Module 6 Class Activity
 
-FastAPI server with four models:
+FastAPI server with five models:
 - **Bigram text generator** (Module 3 class activity)
 - **Word embeddings** using spaCy `en_core_web_md` (300-dim vectors)
 - **CNN image classifier** trained on CIFAR-10 (Assignment 2)
 - **LSTM text generator** trained on *The Count of Monte Cristo* (Module 6 class activity)
+- **GAN hand-written digit generator** trained on MNIST (Assignment 3)
 
 ## Run with Docker
 
@@ -27,6 +28,7 @@ so the Docker image works without retraining.
 | GET | `/embedding` | query param `word`, e.g. `?word=apple` | `word`, `dimension`, `embedding` (list of 300 floats) |
 | POST | `/classify` | image file upload (form field `file`, jpg/png/...) | `predicted_class`, `confidence`, `top_k` |
 | POST | `/generate_with_rnn` | `{"start_word": "the ship", "length": 30, "temperature": 0.7}` | text from the LSTM model |
+| GET | `/generate_digits` | query params `num_images` (1–64, default 16), `seed` (optional) | PNG image: grid of generated digits |
 
 ### Examples
 
@@ -36,12 +38,19 @@ curl -X POST -F "file=@cat.jpeg" http://127.0.0.1:8000/classify
 curl -X POST http://127.0.0.1:8000/generate_with_rnn \
   -H "Content-Type: application/json" \
   -d '{"start_word": "the ship", "length": 30, "temperature": 0.7}'
+curl "http://127.0.0.1:8000/generate_digits?num_images=16&seed=42" -o digits.png
 ```
+
+`/generate_digits` can also be opened directly in a browser:
+http://127.0.0.1:8000/generate_digits?num_images=16&seed=42
+(the same `seed` always gives the same digits; leave it out for new digits on every request).
 
 - `/embedding` returns **400** if more than one word is given, **404** if the word has no vector
 - `/classify` returns **400** if the file is not a valid image, **503** if the model weights are missing
 - `/generate_with_rnn` returns **422** if `length` is outside 1–200 or `temperature` is outside (0, 5],
   **400** if `start_word` is empty, **503** if the model files are missing
+- `/generate_digits` returns **422** if `num_images` is outside 1–64 or `seed` is negative,
+  **503** if the generator weights are missing
 
 ## Assignment 2: CNN
 
@@ -87,6 +96,42 @@ uv run python -m app.rnn_model   # sanity check: prints the architecture and out
 uv run python train_rnn.py       # downloads the book, trains 15 epochs, saves weights + vocabulary
 ```
 
+## Assignment 3: GAN
+
+Architecture (`app/gan_model.py`), as specified in the assignment:
+
+**Generator**
+
+| Layer | Output shape |
+|---|---|
+| Input: noise vector | 100 |
+| Linear(100 → 7·7·128), reshape | 128 × 7 × 7 |
+| ConvTranspose2d(128 → 64, k=4, s=2, p=1) + BatchNorm2d + ReLU | 64 × 14 × 14 |
+| ConvTranspose2d(64 → 1, k=4, s=2, p=1) + Tanh | 1 × 28 × 28 |
+
+**Discriminator**
+
+| Layer | Output shape |
+|---|---|
+| Input: image | 1 × 28 × 28 |
+| Conv2d(1 → 64, k=4, s=2, p=1) + LeakyReLU(0.2) | 64 × 14 × 14 |
+| Conv2d(64 → 128, k=4, s=2, p=1) + BatchNorm2d + LeakyReLU(0.2) | 128 × 7 × 7 |
+| Flatten + Linear(6272 → 1) | 1 (real/fake score) |
+
+Training (`train_gan.py`):
+- MNIST pixels are scaled to [-1, 1] to match the generator's Tanh output
+- Standard GAN loss: `BCEWithLogitsLoss`, which applies the sigmoid to the discriminator's
+  score to get the real/fake probability (numerically more stable than Sigmoid + BCELoss)
+- Each batch: the discriminator is trained to output 1 for real images and 0 for generated
+  images, then the generator is trained to make the discriminator output 1 for generated images
+- Adam (lr 2e-4, betas (0.5, 0.999)), batch size 128, 20 epochs
+- Only the generator weights are saved, since the API only needs the generator
+
+```bash
+uv run python -m app.gan_model   # sanity check: prints both networks and output shapes
+uv run python train_gan.py       # downloads MNIST, trains 20 epochs, saves the generator weights
+```
+
 ## Project structure
 
 ```
@@ -96,12 +141,15 @@ app/
 ├── embedding_model.py  # EmbeddingModel class (spaCy)
 ├── cnn_model.py        # CNN architecture, preprocessing, ImageClassifier
 ├── rnn_model.py        # LSTM architecture, TextGenerator
+├── gan_model.py        # Generator, Discriminator, DigitGenerator
 └── weights/
-    ├── cnn_cifar10.pth  # trained CNN weights
-    ├── lstm_text.pth    # trained LSTM weights
-    └── lstm_vocab.json  # vocabulary used by the LSTM
+    ├── cnn_cifar10.pth    # trained CNN weights
+    ├── lstm_text.pth      # trained LSTM weights
+    ├── lstm_vocab.json    # vocabulary used by the LSTM
+    └── gan_generator.pth  # trained GAN generator weights
 train_cnn.py            # trains the CNN on CIFAR-10
 train_rnn.py            # trains the LSTM on The Count of Monte Cristo
+train_gan.py            # trains the GAN on MNIST
 Dockerfile
 pyproject.toml / uv.lock
 ```
