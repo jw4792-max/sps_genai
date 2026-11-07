@@ -5,6 +5,8 @@ from app.embedding_model import EmbeddingModel
 from app.cnn_model import WEIGHTS_PATH, ImageClassifier
 from app.rnn_model import RNN_VOCAB_PATH, RNN_WEIGHTS_PATH, TextGenerator
 from app.gan_model import GAN_WEIGHTS_PATH, DigitGenerator
+from helper_lib.generator import generate_ebm_samples, generate_samples
+from helper_lib.model import DIFFUSION_WEIGHTS_PATH, EBM_WEIGHTS_PATH, load_model
 
 app = FastAPI()
 
@@ -26,6 +28,10 @@ text_generator = (
 )
 # Load the trained GAN generator once at startup (None if train_gan.py has not been run yet)
 digit_generator = DigitGenerator() if GAN_WEIGHTS_PATH.exists() else None
+# Load the trained diffusion model and energy-based model once at startup
+# (None if train_diffusion.py / train_ebm.py has not been run yet)
+diffusion_model = load_model("Diffusion") if DIFFUSION_WEIGHTS_PATH.exists() else None
+ebm_model = load_model("EBM") if EBM_WEIGHTS_PATH.exists() else None
 
 
 class TextGenerationRequest(BaseModel):
@@ -101,4 +107,39 @@ def generate_digits(
     if digit_generator is None:
         raise HTTPException(status_code=503, detail="GAN model not found. Run train_gan.py first.")
     png_bytes = digit_generator.generate_png(num_images=num_images, seed=seed)
+    return Response(content=png_bytes, media_type="image/png")
+
+
+@app.get(
+    "/generate_diffusion",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def generate_diffusion_images(
+    num_images: int = Query(16, ge=1, le=64),
+    diffusion_steps: int = Query(100, ge=1, le=500),
+    seed: int | None = Query(None, ge=0),
+):
+    """Generate CIFAR-10-like images with the diffusion model (returns a PNG grid)."""
+    if diffusion_model is None:
+        raise HTTPException(status_code=503, detail="Diffusion model not found. Run train_diffusion.py first.")
+    png_bytes = generate_samples(diffusion_model, "cpu", num_samples=num_images,
+                                 diffusion_steps=diffusion_steps, seed=seed)
+    return Response(content=png_bytes, media_type="image/png")
+
+
+@app.get(
+    "/generate_ebm",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def generate_ebm_images(
+    num_images: int = Query(16, ge=1, le=64),
+    steps: int = Query(1024, ge=1, le=2048),
+    seed: int | None = Query(None, ge=0),
+):
+    """Generate CIFAR-10-like images with the energy-based model via Langevin sampling (PNG grid)."""
+    if ebm_model is None:
+        raise HTTPException(status_code=503, detail="Energy-based model not found. Run train_ebm.py first.")
+    png_bytes = generate_ebm_samples(ebm_model, "cpu", num_samples=num_images, steps=steps, seed=seed)
     return Response(content=png_bytes, media_type="image/png")

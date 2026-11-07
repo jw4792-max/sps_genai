@@ -12,5 +12,6 @@ COPY pyproject.toml uv.lock /code/
 RUN uv sync --frozen --no-install-project
 
 COPY ./app /code/app
+COPY ./helper_lib /code/helper_lib
 
 CMD ["uv", "run", "--no-sync", "fastapi", "run", "app/main.py", "--port", "80"]
